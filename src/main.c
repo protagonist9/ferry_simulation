@@ -6,6 +6,7 @@
 #include "../include/queue.h"
 #include "../include/vehicle.h"
 #include "../include/ferry.h"
+#include "../include/logger.h"
 
 SystemState state;
 
@@ -58,7 +59,8 @@ int main() {
     
     // Sistemi başlat
     init_system();
-
+    init_logger();
+    
     pthread_t ferry_tid;
     pthread_t vehicle_tids[TOTAL_VEHICLES];
     Vehicle vehicles[TOTAL_VEHICLES];
@@ -120,6 +122,7 @@ int main() {
     
     // Kaynakları temizle
     clean_system();
+    print_statistics();
     
     return 0;
 }

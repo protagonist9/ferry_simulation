@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <pthread.h>
+#include "../include/logger.h"
 
 void* vehicle_thread(void* arg) {
     Vehicle* v = (Vehicle*)arg;
@@ -18,14 +19,15 @@ void* vehicle_thread(void* arg) {
         
         // Gişe işlemi için rastgele gecikme
         usleep((rand() % 50 + 10) * 1000); 
-        // TODO: Log toll entry
+        log_vehicle_event(v, v->current_side == SIDE_A ? "entered toll on Side A" : "entered toll on Side B");
         
         pthread_mutex_unlock(&state.toll_mutex[v->current_side][toll_id]);
 
         // 2. Kuyruğa Girme (FIFO Queue)
         pthread_mutex_lock(&state.queue_mutex[v->current_side]);
         enqueue(&side_queues[v->current_side], v);
-        // TODO: Log queue entry
+        log_vehicle_event(v, v->current_side == SIDE_A ? "joined queue on Side A" : "joined queue on Side B");
+        long wait_start = get_current_time_ms(); // Bekleme süresi ölçümü burada başlıyor
         pthread_mutex_unlock(&state.queue_mutex[v->current_side]);
 
         // 3. Feribota Biniş (Kritik Bölge)
@@ -54,9 +56,12 @@ void* vehicle_thread(void* arg) {
         // Sıra bende ve kapasite yeterli. Biniş işlemini yap.
         dequeue(&side_queues[v->current_side]);
         state.current_load += v->size;
-        // TODO: Log boarding
+        
+        long wait_time = get_current_time_ms() - wait_start;
+        record_wait_time(wait_time);
+        log_vehicle_event(v, "boarded the ferry");
 
-        // Eğer feribot tam dolduysa (20 unit), kalkış sinyali gönder [cite: 53, 54]
+        // Eğer feribot tam dolduysa (20 unit), kalkış sinyali gönder
         if (state.current_load == FERRY_CAPACITY) {
             pthread_cond_signal(&state.cond_ferry_depart);
         }
@@ -70,20 +75,22 @@ void* vehicle_thread(void* arg) {
         // Araç feribottan iniyor
         state.current_load -= v->size;
         v->current_side = 1 - v->current_side; // Yakayı değiştir (0 ise 1, 1 ise 0 yap)
-        // TODO: Log unloading & arrival
+        log_vehicle_event(v, "unloaded from the ferry");
+        
+        // Eğer feribotu tamamen ben boşalttıysam, feribotu uyandır.
         if (state.current_load == 0) {
             pthread_cond_signal(&state.cond_ferry_depart);
         }
 
         pthread_mutex_unlock(&state.ferry_mutex);
 
-        // Dönüş yolculuğundan önce rastgele bir süre bekle (Return trip delay) [cite: 63, 64, 65]
+        // Dönüş yolculuğundan önce rastgele bir süre bekle (Return trip delay)
         if (trip == 0) {
             usleep((rand() % 500 + 100) * 1000); // 100ms - 600ms bekleme
         }
     }
 
-    // Gidiş-dönüş tamamlandı, aracı tamamlandı olarak işaretle [cite: 67]
+    // Gidiş-dönüş tamamlandı, aracı tamamlandı olarak işaretle
     v->has_completed_trip = true;
     
     // Güvenli sayaç güncellemesi

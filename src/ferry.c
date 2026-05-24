@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <pthread.h>
+#include "../include/logger.h"
 
 // Maksimum bekleme süresi (milisaniye) - Starvation önlemi
 #define FERRY_MAX_WAIT_MS 3000 
@@ -42,7 +43,8 @@ void* ferry_thread(void* arg) {
 
         // Kalkış işlemi başlıyor
         state.is_loading = false;
-        // TODO: Log departure [cite: 111]
+        record_ferry_trip(state.current_load);
+        log_ferry_event(state.ferry_location == SIDE_A ? "departed from Side A" : "departed from Side B", state.current_load);
         
         pthread_mutex_unlock(&state.ferry_mutex);
 
@@ -54,7 +56,7 @@ void* ferry_thread(void* arg) {
         
         // Yakayı değiştir
         state.ferry_location = 1 - state.ferry_location;
-        // TODO: Log arrival [cite: 103]
+        log_ferry_event(state.ferry_location == SIDE_A ? "arrived at Side A" : "arrived at Side B", state.current_load);
 
         state.is_unloading = true;
         
