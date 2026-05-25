@@ -16,50 +16,66 @@ void* vehicle_thread(void* arg) {
         // 1. Gişe Geçişi (Toll Booth)
         int toll_id = rand() % 2; 
         pthread_mutex_lock(&state.toll_mutex[v->current_side][toll_id]);
-        
-        // Gişe işlemi için rastgele gecikme
         usleep((rand() % 50 + 10) * 1000); 
         log_vehicle_event(v, v->current_side == SIDE_A ? "entered toll on Side A" : "entered toll on Side B");
-        
         pthread_mutex_unlock(&state.toll_mutex[v->current_side][toll_id]);
 
         // 2. Kuyruğa Girme (FIFO Queue)
         pthread_mutex_lock(&state.queue_mutex[v->current_side]);
         enqueue(&side_queues[v->current_side], v);
         log_vehicle_event(v, v->current_side == SIDE_A ? "joined queue on Side A" : "joined queue on Side B");
-        long wait_start = get_current_time_ms(); // Bekleme süresi ölçümü burada başlıyor
+        long wait_start = get_current_time_ms(); 
         pthread_mutex_unlock(&state.queue_mutex[v->current_side]);
+
+        // EKSTRA MANTIKSAL İYİLEŞTİRME (Two-Side Coordination):
+        // Ben karşı yakadaysam ve feribot boş bir şekilde diğer yakada bekliyorsa onu doğrudan buraya çağır.
+        pthread_mutex_lock(&state.ferry_mutex);
+        if (state.ferry_location != v->current_side && state.is_loading && state.current_load == 0) {
+            pthread_cond_signal(&state.cond_ferry_depart);
+        }
+        pthread_mutex_unlock(&state.ferry_mutex);
 
         // 3. Feribota Biniş (Kritik Bölge)
         pthread_mutex_lock(&state.ferry_mutex);
 
-        // UYARI: Spurious wakeup (sahte uyanma) ihtimaline karşı her zaman while döngüsü içinde bekletiyoruz.
-        // Feribot burada değilse VEYA yükleme yapmıyorsa VEYA sıradaki araç ben değilsem VEYA sığmıyorsam bekle.
-        while (state.ferry_location != v->current_side || 
-               !state.is_loading || 
-               peek(&side_queues[v->current_side]) != v || 
-               state.current_load + v->size > FERRY_CAPACITY) {
-            
-            // Eğer feribot buradaysa, yükleme yapıyorsa, sıra bendeyse AMA kapasite yetmiyorsa:
-            // Feribotun kalkması şarttır (Departure Policy). Feribota sinyal gönder.
+        while (1) {
+            // HATA 1 ÇÖZÜMÜ: Kuyruktaki aracı kontrol ederken queue_mutex kilitlenmeli
+            pthread_mutex_lock(&state.queue_mutex[v->current_side]);
+            Vehicle* front_vehicle = peek(&side_queues[v->current_side]);
+            pthread_mutex_unlock(&state.queue_mutex[v->current_side]);
+
+            // Biniş şartları sağlandıysa döngüden çık
+            if (state.ferry_location == v->current_side && 
+                state.is_loading && 
+                front_vehicle == v && 
+                state.current_load + v->size <= FERRY_CAPACITY) {
+                break; 
+            }
+
+            // Kalkış Politikası: Sıra bende ama kapasite yetmiyorsa, feribotun kalkması şarttır.
             if (state.ferry_location == v->current_side && state.is_loading && 
-                peek(&side_queues[v->current_side]) == v && 
+                front_vehicle == v && 
                 state.current_load + v->size > FERRY_CAPACITY) {
-                
                 pthread_cond_signal(&state.cond_ferry_depart);
             }
 
-            // Feribotun uygun duruma gelmesini bekle ve uyurken ferry_mutex'i bırak.
+            // Feribotun uygun duruma gelmesini bekle
             pthread_cond_wait(&state.cond_ferry_available[v->current_side], &state.ferry_mutex);
         }
 
-        // Sıra bende ve kapasite yeterli. Biniş işlemini yap.
+        // HATA 1 ÇÖZÜMÜ: Kuyruktan çıkış yaparken queue_mutex kilitlenmeli
+        pthread_mutex_lock(&state.queue_mutex[v->current_side]);
         dequeue(&side_queues[v->current_side]);
+        pthread_mutex_unlock(&state.queue_mutex[v->current_side]);
+        
         state.current_load += v->size;
         
         long wait_time = get_current_time_ms() - wait_start;
         record_wait_time(wait_time);
         log_vehicle_event(v, "boarded the ferry");
+
+        // HATA 2 ÇÖZÜMÜ: Binen araç arkasındaki diğer aracın şansını denemesi için sinyal göndermeli (Cascade Wakeup)
+        pthread_cond_broadcast(&state.cond_ferry_available[v->current_side]);
 
         // Eğer feribot tam dolduysa (20 unit), kalkış sinyali gönder
         if (state.current_load == FERRY_CAPACITY) {
@@ -67,14 +83,13 @@ void* vehicle_thread(void* arg) {
         }
 
         // 4. Karşıya Geçiş ve İniş
-        // Feribot karşı yakaya varıp boşaltma moduna (is_unloading) geçene kadar uyu.
         while (state.ferry_location == v->current_side || !state.is_unloading) {
             pthread_cond_wait(&state.cond_unloading_done, &state.ferry_mutex);
         }
 
         // Araç feribottan iniyor
         state.current_load -= v->size;
-        v->current_side = 1 - v->current_side; // Yakayı değiştir (0 ise 1, 1 ise 0 yap)
+        v->current_side = 1 - v->current_side; // Yakayı değiştir 
         log_vehicle_event(v, "unloaded from the ferry");
         
         // Eğer feribotu tamamen ben boşalttıysam, feribotu uyandır.
@@ -84,9 +99,9 @@ void* vehicle_thread(void* arg) {
 
         pthread_mutex_unlock(&state.ferry_mutex);
 
-        // Dönüş yolculuğundan önce rastgele bir süre bekle (Return trip delay)
+        // Dönüş yolculuğundan önce rastgele bir süre bekle
         if (trip == 0) {
-            usleep((rand() % 500 + 100) * 1000); // 100ms - 600ms bekleme
+            usleep((rand() % 500 + 100) * 1000); 
         }
     }
 
