@@ -10,10 +10,9 @@
 
 SystemState state;
 
-// Tüm mutex ve condition variable kaynaklarının ilk değer atamaları
 void init_system() {
     state.current_load = 0;
-    state.ferry_location = rand() % 2; // Feribot rastgele bir yakada başlar
+    state.ferry_location = rand() % 2; 
     state.is_loading = false;
     state.is_unloading = false;
     state.completed_vehicles = 0;
@@ -35,7 +34,6 @@ void init_system() {
     pthread_cond_init(&state.cond_unloading_done, NULL);
 }
 
-// Sistem kapanırken işletim sistemine kaynakları geri iade etme
 void clean_system() {
     pthread_mutex_destroy(&state.ferry_mutex);
     pthread_mutex_destroy(&state.stats_mutex);
@@ -54,10 +52,8 @@ void clean_system() {
 }
 
 int main() {
-    // Rastgelelik çekirdeğini ayarla
     srand(time(NULL));
     
-    // Sistemi başlat
     init_system();
     init_logger();
     
@@ -67,16 +63,13 @@ int main() {
 
     printf("[SİSTEM] Feribot simülasyonu başlatılıyor...\n");
 
-    // 1. Feribot Thread'ini Başlat
     if (pthread_create(&ferry_tid, NULL, ferry_thread, NULL) != 0) {
         perror("Feribot thread'i oluşturulamadı");
         return 1;
     }
 
-    // 2. Araç Thread'lerini Oluştur ve Başlat
     int v_idx = 0;
     
-    // 12 Araba (Boyut: 1)
     for (int i = 0; i < NUM_CARS; i++, v_idx++) {
         vehicles[v_idx].id = i + 1;
         vehicles[v_idx].type = CAR;
@@ -87,7 +80,6 @@ int main() {
         pthread_create(&vehicle_tids[v_idx], NULL, vehicle_thread, &vehicles[v_idx]);
     }
     
-    // 10 Minibüs (Boyut: 2)
     for (int i = 0; i < NUM_MINIBUSES; i++, v_idx++) {
         vehicles[v_idx].id = i + 1;
         vehicles[v_idx].type = MINIBUS;
@@ -98,7 +90,6 @@ int main() {
         pthread_create(&vehicle_tids[v_idx], NULL, vehicle_thread, &vehicles[v_idx]);
     }
     
-    // 8 Kamyon (Boyut: 3)
     for (int i = 0; i < NUM_TRUCKS; i++, v_idx++) {
         vehicles[v_idx].id = i + 1;
         vehicles[v_idx].type = TRUCK;
@@ -109,18 +100,14 @@ int main() {
         pthread_create(&vehicle_tids[v_idx], NULL, vehicle_thread, &vehicles[v_idx]);
     }
 
-    // 3. Thread'lerin Bitmesini Bekle (Join)
-    // Önce tüm araçların turlarını bitirmesini bekliyoruz
     for (int i = 0; i < TOTAL_VEHICLES; i++) {
         pthread_join(vehicle_tids[i], NULL);
     }
 
-    // Araçlar bittiğinde feribot thread'i de döngüden çıkacak, onu yakala
     pthread_join(ferry_tid, NULL);
 
     printf("[SİSTEM] Tüm araçlar turlarını tamamladı. Simülasyon güvenli bir şekilde kapatılıyor.\n");
     
-    // Kaynakları temizle
     clean_system();
     print_statistics();
     

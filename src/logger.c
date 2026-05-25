@@ -14,7 +14,6 @@ void init_logger() {
     gettimeofday(&start_time, NULL);
 }
 
-// Simülasyonun başından beri geçen süreyi milisaniye olarak döndürür
 long get_current_time_ms() {
     struct timeval now;
     gettimeofday(&now, NULL);
@@ -63,7 +62,7 @@ void print_statistics() {
     long total_sim_time = get_current_time_ms();
     double avg_wait = total_wait_count > 0 ? (double)total_wait_time / total_wait_count : 0.0;
     
-    // Kapasite kullanım oranı hesabı [cite: 118]
+    // Hata veren satır düzeltildi (etiket kaldırıldı)
     double utilization = total_ferry_trips > 0 ? ((double)total_ferry_load / (total_ferry_trips * FERRY_CAPACITY)) * 100.0 : 0.0;
 
     printf("\n========================================\n");
